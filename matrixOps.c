@@ -9,7 +9,7 @@
 *                                                      *
 *******************************************************/
 
-#include <stdio.h>
+#include <stdlib.h>
 
 float** getNewMatrix(int rows, int columns) {
     float **mat = (float**) malloc(sizeof(float*)*rows);
@@ -58,16 +58,21 @@ void getAdjointMatrix(float **mat, float **adj, int n) {
     free(cofactorMatrix);
 }
 
+void elementWiseMultiply(float val, float **mat, int r, int c) {
+    for(int i=0; i<r; ++i)
+        for(int j=0; j<c; ++j)
+            mat[i][j] *= val;
+}
+
+// Returns -1 if matrix cannot be inverted.
 int getInverseMatrix(float **mat, float **inverse, int n) {
     getAdjointMatrix(mat, inverse, n);
     float det = determinant(mat, n);
     if(det==0.0) {
-        printf("ERROR: No inverse exists for given matrix\n");
+        // No inverse exists for given matrix.
         return -1;
     }
-    for(int i=0; i<n; ++i)
-        for(int j=0; j<n; ++j)
-            inverse[i][j] /= det;
+    elementWiseMultiply(1.0/det, inverse, n, n);
     return 0;
 }
 
