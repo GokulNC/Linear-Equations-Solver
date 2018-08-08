@@ -14,15 +14,18 @@
 #include <string.h>
 #include <math.h>
 #include "matrixOps.c"
-#define MAX_EQNS 50
+#define MAX_EQNS 52
+
+char errorCodes[][100] = {
+    "Equations are verified.",
+    "No equations found.",
+    "Infinite no. of solutions exists.",
+    "More no. of equations given than number of variables."
+};
 
 typedef struct {
-    char alpha;
-    float val;
-} coeff;
-
-typedef struct {
-    coeff *vars;
+    float coeffs[MAX_EQNS];
+    char isValid[MAX_EQNS];
     float constant;
     int numVars;
 } equation;
@@ -30,14 +33,39 @@ typedef struct {
 typedef struct {
     equation *eqns;
     int numEquations;
+    char isVarPresent[MAX_EQNS];
+    int varsEncountered;
+    char *varsToSolve;
 } familyOfEqns;
 
+int isUpperCase(char c) {
+    return (c >= 'A' && c <= 'Z');
+}
+
+int isLowerCase(char c) {
+    return (c >= 'a' && c <= 'z');
+}
+
 int isChar(char c) {
-    return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
+    return (isLowerCase(c) || isUpperCase(c));
 }
 
 int isDigit(char c) {
     return (c >= '0' && c <='9');
+}
+
+int encodeVar(char c) {
+    if(isLowerCase(c))
+        return c-'a';
+    if(isUpperCase(c))
+        return c-'A'+26;
+    return -1;
+}
+
+char decodeVar(int n) {
+    if(n>=0 && n<26) return 'a'+n;
+    if(n>=26 && n<52) return 'A'+n-26;
+    return '\0';
 }
 
 int countVariables(char *line) {
@@ -45,6 +73,25 @@ int countVariables(char *line) {
     for(int i=0; line[i]!='\0'; ++i)
         if(isChar(line[i])) ++count;
     return count;
+}
+
+void storeCoeff(equation *eqn, char c, float val) {
+    int location = encodeVar(c);
+    eqn->coeffs[location] += val;
+    eqn->isValid[location] = 1;
+}
+
+float getCoeff(equation *eqn, char c) {
+    int location = encodeVar(c);
+    return eqn->coeffs[location];
+}
+
+void markVariablePresence(familyOfEqns *eqnsContainer, char c) {
+    int location = encodeVar(c);
+    if(eqnsContainer->isVarPresent[location]) return;
+    eqnsContainer->isVarPresent[location] = 1;
+    eqnsContainer->varsToSolve[eqnsContainer->varsEncountered] = c;
+    ++(eqnsContainer->varsEncountered);
 }
 
 //parses number from str[i] into val and return no. of chars processed
@@ -77,17 +124,18 @@ int parseNumber(char *str, int i, float *val, float defaultVal) {
     }
 }
 
-// parses and stores coefficient & corresponding variable
+// Parses and stores coefficient & corresponding variable
 // name at str[i] into 'var' (a struct container for both)
-int parseToken(char *str, int i, coeff *var) {
+int parseToken(char *str, int i, equation *eqn) {
     if(str[i]=='=') return 0;
-    int parseLen = parseNumber(str, i, &(var->val), 1.0);
+    float value;
+    int parseLen = parseNumber(str, i, &value, 1.0);
     if(parseLen==-1) {
         printf("\nProblem parsing the equation at index %d\n", i);
     }
     i += parseLen;
     if(isChar(str[i])) {
-        var->alpha = str[i];
+        storeCoeff(eqn, str[i], value);
         return parseLen+1;
     } else {
         return -1;
@@ -114,13 +162,16 @@ void removeJunkCharacters(char *str) {
 
 // Checks if equation contains only valid characters
 // Returns 0 if it contains illegal characters
-int checkEquationValidity(char* eqn) {
+int checkEquationValidity(char* eqn, familyOfEqns *eqnsContainer) {
     int wasEqualsEncountered = 0;
     char allowedArithmeticChars[] = {'+', '-', '.'};
     for(int i=0; eqn[i] != '\0'; ++i) {
-        if((isChar(eqn[i]) && !isChar(eqn[i+1]) && !wasEqualsEncountered) || isDigit(eqn[i]))
+        if((isChar(eqn[i]) && !isChar(eqn[i+1]) && !wasEqualsEncountered)) {
+            markVariablePresence(eqnsContainer, eqn[i]);
             continue;
-        else if(isCharInString(eqn[i], allowedArithmeticChars) && !isCharInString(eqn[i+1], allowedArithmeticChars))
+        } else if(isDigit(eqn[i])) {
+            continue;
+        } else if(isCharInString(eqn[i], allowedArithmeticChars) && !isCharInString(eqn[i+1], allowedArithmeticChars))
             continue;
         else if(eqn[i]=='=' && !wasEqualsEncountered) {
             wasEqualsEncountered = 1;
@@ -132,18 +183,20 @@ int checkEquationValidity(char* eqn) {
     return (wasEqualsEncountered);
 }
 
-void parseEquation(char *line, equation *eqn) {
+void parseEquation(char *line, familyOfEqns *eqnsContainer, int i) {
+    equation *eqn = eqnsContainer->eqns + i;
     removeJunkCharacters(line);
-    int status = checkEquationValidity(line);
+    int status = checkEquationValidity(line, eqnsContainer);
     if(!status) {
         printf("\nERROR: Equation in illegal format.\n");
         exit(-1);
     }
     eqn->numVars = countVariables(line);
-    eqn->vars = (coeff*) malloc(sizeof(coeff)*eqn->numVars);
+    memset(eqn->coeffs, 0, MAX_EQNS*sizeof(eqn->coeffs[0]));
+    memset(eqn->isValid, 0, MAX_EQNS*sizeof(eqn->isValid[0]));
     int index = 0, parseLen, varIndex = 0;
     while(line[index] != '\0') {
-        parseLen = parseToken(line, index, eqn->vars+varIndex);
+        parseLen = parseToken(line, index, eqn);
         if(parseLen>0) {
             index += parseLen;
             ++varIndex;
@@ -163,22 +216,11 @@ void parseEquation(char *line, equation *eqn) {
     }
 }
 
-int verifyEquations(familyOfEqns *eqns) {
-    if(eqns->numEquations==0) return -1;
-    equation targetEqn = eqns->eqns[0];
-    if(eqns->numEquations != targetEqn.numVars) return -2;
-    for(int i=1; i< (eqns->numEquations); ++i) {
-        if(eqns->eqns[i].numVars != targetEqn.numVars) {
-            printf("Equation %d does not match with the previous equations.\n", i);
-            return -3;
-        }
-        for(int j=0; j< targetEqn.numVars; ++j) {
-            if(eqns->eqns[i].vars[j].alpha != targetEqn.vars[j].alpha) {
-                printf("Equation %d does not have variable %c in proper sequence.\n", i, targetEqn.vars[j].alpha);
-                return -4;
-            }
-	}
-    }
+int verifyEqns(familyOfEqns *eqns) {
+    if(eqns->numEquations==0) return 1;
+    if(eqns->numEquations < eqns->varsEncountered) return 2;
+    if(eqns->numEquations > eqns->varsEncountered) return 3;
+    eqns->varsToSolve[eqns->varsEncountered] = '\0';
     return 0;
 }
 
@@ -186,23 +228,30 @@ familyOfEqns readEquations() {
     familyOfEqns eqnsContainer;
     eqnsContainer.numEquations = 0;
     eqnsContainer.eqns = (equation *) malloc(sizeof(equation) * MAX_EQNS);
-    int i = 0;
+    memset(eqnsContainer.isVarPresent, 0, MAX_EQNS*sizeof(eqnsContainer.isVarPresent[0]));
+    eqnsContainer.varsToSolve = malloc(MAX_EQNS);
+    eqnsContainer.varsEncountered = 0;
+    int i = 0, baseEquation=0;
     char line[101], end[]="END";
     while(i<MAX_EQNS) {
         scanf("%[^\n]", line);
         getchar();
         if(strcmp(end, line)==0) break;
-        parseEquation(line, eqnsContainer.eqns+i);
+        parseEquation(line, &eqnsContainer, i);
+        if(eqnsContainer.eqns[i].numVars > eqnsContainer.eqns[baseEquation].numVars)
+            baseEquation = i;
         ++i;
     }
+    printf("\n");
     if(i>=MAX_EQNS) {
-        printf("ERROR: Increase the MAX_EQNS limit to solve for more than %d variables.\n", MAX_EQNS);
+        printf("ERROR: Cannot solve for more than %d variables.\n", MAX_EQNS);
         exit(-1);
     }
     eqnsContainer.numEquations = i;
-    int verifyStatus = verifyEquations(&eqnsContainer);
-    if(verifyStatus<0) {
-        printf("ERROR: Unable to verify equation's integrity\n");
+    int verifyStatus = verifyEqns(&eqnsContainer);
+    if(verifyStatus) {
+        printf("%s\n", errorCodes[verifyStatus]);
+        printf("The given equations cannot be solved.\n");
         exit(-1);
     }
     return eqnsContainer;
@@ -212,7 +261,7 @@ void getCoeffsMatrix(familyOfEqns *eqns, float **mat) {
     int n = eqns->numEquations;
     for(int i=0; i<n; ++i)
         for(int j=0; j<n; ++j)
-            mat[i][j] = eqns->eqns[i].vars[j].val;
+            mat[i][j] = getCoeff(eqns->eqns+i, eqns->varsToSolve[j]);
 }
 
 void getConstantsVector(familyOfEqns *eqns, float **vec) {
@@ -221,18 +270,7 @@ void getConstantsVector(familyOfEqns *eqns, float **vec) {
         vec[i][0] = eqns->eqns[i].constant;
 }
 
-equation* getResultPairs(float **vec, coeff *vars, int n) {
-    equation *solution = (equation*) malloc(sizeof(equation));
-    solution->vars = (coeff*) malloc(sizeof(coeff)*n);
-    solution->numVars = n;
-    for(int i=0; i<n; ++i) {
-        solution->vars[i].alpha = vars[i].alpha;
-        solution->vars[i].val = vec[i][0];
-    }
-    return solution;
-}
-
-equation* solveEquations(familyOfEqns *eqnSet) {
+float** solveEquations(familyOfEqns *eqnSet) {
     int n = (*eqnSet).numEquations;
     float **coeffsMatrix = getNewMatrix(n, n);
     float **constantsVector = getNewMatrix(n, 1);
@@ -241,29 +279,26 @@ equation* solveEquations(familyOfEqns *eqnSet) {
     float **inverse = getNewMatrix(n, n);
     int status = getInverseMatrix(coeffsMatrix, inverse, n);
     if(status<0) {
-        printf("The given equations cannot be solved.\n");
+        printf("The given equations have no solution.\n");
         exit(-1);
     }
     float **result = multiplyMatrices(inverse, constantsVector, n, n, n, 1);
-    equation *solution = getResultPairs(result, eqnSet->eqns[0].vars, eqnSet->eqns[0].numVars);
-    free(result);
     free(coeffsMatrix);
     free(constantsVector);
     free(inverse);
-    return solution;
+    return result;
 }
 
-
-void printEquationCoeffs(equation *s) {
-    for(int i=0; i< (s->numVars); ++i) 
-        printf("%c = %0.2f\n", s->vars[i].alpha, s->vars[i].val);
+void printSolution(float **solution, familyOfEqns *eqnSet) {
+    for(int i=0; i<eqnSet->varsEncountered; ++i)
+        printf("%c: %0.2f\n", eqnSet->varsToSolve[i], solution[i][0]);
 }
 
 int main() {
     familyOfEqns eqnSet = readEquations();
-    equation *solution = solveEquations(&eqnSet);
-    printf("\nSolution:\n");
-    printEquationCoeffs(solution);
+    float **solution = solveEquations(&eqnSet);
+    printf("Solution:\n");
+    printSolution(solution, &eqnSet);
     free(solution);
     //TODO: Release all dynamic allocations properly
     return 0;
