@@ -32,10 +32,18 @@ typedef struct {
     int numEquations;
 } familyOfEqns;
 
+int isChar(char c) {
+    return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
+}
+
+int isDigit(char c) {
+    return (c >= '0' && c <='9');
+}
+
 int countVariables(char *line) {
     int count = 0;
     for(int i=0; line[i]!='\0'; ++i)
-        if(line[i]>='a' && line[i]<='z') ++count;
+        if(isChar(line[i])) ++count;
     return count;
 }
 
@@ -44,7 +52,7 @@ int parseNumber(char *str, int i, float *val, float defaultVal) {
     int sign = 1, floatLocation = -1, parseLen = 0;
     *val = 0;
     while(1) {
-        if(str[i] >= '0' && str[i] <='9') {
+        if(isDigit(str[i])) {
             if(floatLocation>0) {
                 *val += (str[i]-'a')/((float) pow(10.0, floatLocation));
                 floatLocation += 1;
@@ -78,7 +86,7 @@ int parseToken(char *str, int i, coeff *var) {
         printf("\nProblem parsing the equation at index %d\n", i);
     }
     i += parseLen;
-    if(str[i]>='a' && str[i]<='z') {
+    if(isChar(str[i])) {
         var->alpha = str[i];
         return parseLen+1;
     } else {
@@ -86,7 +94,51 @@ int parseToken(char *str, int i, coeff *var) {
     }
 }
 
+// Checks if given character is present in string str
+int isCharInString(char c, char *str) {
+    for(int i=0; str[i] != '\0'; ++i) {
+        if(c == str[i]) return 1;
+    }
+    return 0;
+}
+
+void removeJunkCharacters(char *str) {
+    char removeChars[] = {' ', '\t', '\r', '\n'};
+    int k=0;
+    for(int i=0; str[i] != '\0'; ++i) {
+        if(!isCharInString(str[i], removeChars))
+            str[k++] = str[i];
+    }
+    str[k] = '\0';
+}
+
+// Checks if equation contains only valid characters
+// Returns 0 if it contains illegal characters
+int checkEquationValidity(char* eqn) {
+    int wasEqualsEncountered = 0;
+    char allowedArithmeticChars[] = {'+', '-', '.'};
+    for(int i=0; eqn[i] != '\0'; ++i) {
+        if((isChar(eqn[i]) && !isChar(eqn[i+1]) && !wasEqualsEncountered) || isDigit(eqn[i]))
+            continue;
+        else if(isCharInString(eqn[i], allowedArithmeticChars) && !isCharInString(eqn[i+1], allowedArithmeticChars))
+            continue;
+        else if(eqn[i]=='=' && !wasEqualsEncountered) {
+            wasEqualsEncountered = 1;
+            continue;
+        } else {
+            return 0;
+        }
+    }
+    return (wasEqualsEncountered);
+}
+
 void parseEquation(char *line, equation *eqn) {
+    removeJunkCharacters(line);
+    int status = checkEquationValidity(line);
+    if(!status) {
+        printf("\nERROR: Equation in illegal format.\n");
+        exit(-1);
+    }
     eqn->numVars = countVariables(line);
     eqn->vars = (coeff*) malloc(sizeof(coeff)*eqn->numVars);
     int index = 0, parseLen, varIndex = 0;
@@ -137,7 +189,8 @@ familyOfEqns readEquations() {
     int i = 0;
     char line[101], end[]="END";
     while(i<MAX_EQNS) {
-        scanf("%s[^\n]\r\n", line);
+        scanf("%[^\n]", line);
+        getchar();
         if(strcmp(end, line)==0) break;
         parseEquation(line, eqnsContainer.eqns+i);
         ++i;
